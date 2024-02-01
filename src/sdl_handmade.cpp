@@ -3,33 +3,74 @@
 #include "SDL2/SDL_events.h"
 #include "SDL2/SDL_video.h"
 #include "array"
+#include "stdint.h"
 	
-void SDLResizeTexture(SDL_Renderer *renderer, const int& width, const int& height){
-    SDL_Texture *texture = SDL_CreateTexture(renderer,
-					     SDL_PIXELFORMAT_ARGB8888, //one byte for alpha, followed by 3 byte for red, green and blue, that is the pixel format
-					     SDL_TEXTUREACCESS_STREAMING,
-					     width,
-					     height);
-    if (!texture) {
-	std::cout<<"error creating texture"<<'\n';
-	return;
+const int bytesPerPixel = 4;
+struct TextureInfo {
+    int width;
+    int hight;
+    int pitch;
+    void* pixels;
+    SDL_Texture *texture ;
+} mainTexture;
+
+void GradientRenderer(TextureInfo& texture, const int& offsetX, const int& offsetY){
+    uint8_t* row = (uint8_t *)texture.pixels; 
+    *row = 255;
+    for (int Y = 0; Y < texture.hight; Y++){
+	uint8_t* pixel = (uint8_t *) row; 
+	for (int X = 0; X < texture.width; X++){
+	    *pixel = (uint8_t)(X+offsetX);  //BLUE
+	    ++pixel;
+
+	    *pixel = (uint8_t)(Y+offsetY);  //GREEN
+	    ++pixel;
+
+	    *pixel = 0xFF;  //RED
+	    ++pixel;
+
+	    *pixel = 0x00; 
+	    ++pixel;
+	}
+	row+=texture.pitch;
     }
-    void *pixels = malloc(width * height * 4); //multiply by 4 for the four bytes of each pixel
-    if (SDL_UpdateTexture(texture,
-			  0,
-			  pixels,
-			  width * 4)){
+
+}
+
+void UpdateWindow(SDL_Window *window, SDL_Renderer *renderer){
+    if (SDL_UpdateTexture(mainTexture.texture, 0,
+			  mainTexture.pixels,
+			  mainTexture.pitch)){
 	std::cout<<"error updating texture"<<'\n';
     }
     if (SDL_RenderCopy(renderer,
-		       texture,
+		       mainTexture.texture,
 		       0,
 		       0)){
 	std::cout<<"error copying renderer"<<'\n';
     }
-    SDL_DestroyTexture(texture);
-    free(pixels);
+    // SDL_RenderClear(renderer);
+    SDL_RenderPresent(renderer);
 }
+
+void SDLResizeTexture(SDL_Renderer *renderer, const int& width, const int& hight){
+    free(mainTexture.pixels);
+    mainTexture = {width, hight, width * bytesPerPixel, malloc(width * hight * bytesPerPixel),
+		   SDL_CreateTexture(renderer,
+				     SDL_PIXELFORMAT_ARGB8888, //one byte for alpha, followed by 3 byte for red, green and blue, that is the pixel format
+				     SDL_TEXTUREACCESS_STREAMING,
+				     width,
+				     hight)
+    };
+    if (!mainTexture.texture) {
+	std::cout<<"error creating texture"<<'\n';
+	return;
+    }
+    // pixels = malloc(width * hight * bytesPerPixel); //multiply by 4 for the four bytes of each pixel
+    if(!mainTexture.pixels) std::cout<<"failed to allocate memory"<<'\n';
+    // pitch = width * bytesPerPixel;
+}
+
 bool HandleEvent(const SDL_Event& Event, SDL_Renderer* renderer)
 {
     bool shouldQuit = false;
@@ -92,18 +133,23 @@ int main(int argc, char *argv[])
 	std::cout<<"Error creating SDL Renderer.\n";
         return 1;
     }
-    for(;;)
+    bool running = true;
+    int XOffset = 0;
+    while(running)
     {
 	SDL_Event Event;
-	SDL_WaitEvent(&Event);
-	if (HandleEvent(Event, renderer))
-	{
-	    break;
+	while(SDL_PollEvent(&Event)){
+	    if (HandleEvent(Event, renderer))
+	    {
+		running= false;
+	    }
 	}
-	SDL_RenderClear(renderer);
-	SDL_RenderPresent(renderer);
+	GradientRenderer(mainTexture, XOffset, 0);
+	UpdateWindow(window, renderer);
+	++XOffset;
     }
     // SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Handmade Hero", "This is Handmade Hero", 0);
+    SDL_DestroyTexture(mainTexture.texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

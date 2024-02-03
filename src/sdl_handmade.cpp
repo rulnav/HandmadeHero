@@ -5,31 +5,36 @@
 #include "array"
 #include "stdint.h"
 	
-const int bytesPerPixel = 4;
-struct TextureInfo {
+struct SDL_Backbuffer {
+    void* pixels;
+    SDL_Texture *texture ;
     int width;
     int hight;
     int pitch;
-    void* pixels;
-    SDL_Texture *texture ;
-} mainTexture;
+    int bytesPerPixel {4};
+} ;
+static SDL_Backbuffer globalBuffer;
 
-void GradientRenderer(TextureInfo& texture, const int& offsetX, const int& offsetY){
+void GradientRenderer(SDL_Backbuffer& texture, const int& offsetX, const int& offsetY){
     uint8_t* row = (uint8_t *)texture.pixels; 
-    *row = 255;
     for (int Y = 0; Y < texture.hight; Y++){
-	uint8_t* pixel = (uint8_t *) row; 
+	uint32_t* pixel = (uint32_t *) row; 
 	for (int X = 0; X < texture.width; X++){
-	    *pixel = (uint8_t)(X+offsetX);  //BLUE
-	    ++pixel;
-
-	    *pixel = (uint8_t)(Y+offsetY);  //GREEN
-	    ++pixel;
-
-	    *pixel = 0xFF;  //RED
-	    ++pixel;
-
-	    *pixel = 0x00; 
+	    // *pixel = (uint32_t)(X+offsetX);  //BLUE
+	    // ++pixel;
+					//
+	    // *pixel = (uint32_t)(Y+offsetY);  //GREEN
+	    // ++pixel;
+					//
+	    // *pixel = 0xFF;  //RED
+	    // ++pixel;
+					//
+	    // *pixel = 0x00; 
+	    // ++pixel;
+	    uint8_t BLUE = (X+offsetX);
+	    uint8_t GREEN = (Y+offsetY);
+	    uint8_t RED = 0xFF;
+	    *pixel = (RED<<(8*2)) | (GREEN<<8) | (BLUE);
 	    ++pixel;
 	}
 	row+=texture.pitch;
@@ -38,13 +43,13 @@ void GradientRenderer(TextureInfo& texture, const int& offsetX, const int& offse
 }
 
 void UpdateWindow(SDL_Window *window, SDL_Renderer *renderer){
-    if (SDL_UpdateTexture(mainTexture.texture, 0,
-			  mainTexture.pixels,
-			  mainTexture.pitch)){
+    if (SDL_UpdateTexture(globalBuffer.texture, 0,
+			  globalBuffer.pixels,
+			  globalBuffer.pitch)){
 	std::cout<<"error updating texture"<<'\n';
     }
     if (SDL_RenderCopy(renderer,
-		       mainTexture.texture,
+		       globalBuffer.texture,
 		       0,
 		       0)){
 	std::cout<<"error copying renderer"<<'\n';
@@ -53,22 +58,23 @@ void UpdateWindow(SDL_Window *window, SDL_Renderer *renderer){
     SDL_RenderPresent(renderer);
 }
 
-void SDLResizeTexture(SDL_Renderer *renderer, const int& width, const int& hight){
-    free(mainTexture.pixels);
-    mainTexture = {width, hight, width * bytesPerPixel, malloc(width * hight * bytesPerPixel),
-		   SDL_CreateTexture(renderer,
+void SDLStretchTextureToWindow(SDL_Renderer *renderer, const int& width, const int& hight){
+    free(globalBuffer.pixels);
+    globalBuffer = { malloc(width * hight * globalBuffer.bytesPerPixel),
+		    SDL_CreateTexture(renderer,
 				     SDL_PIXELFORMAT_ARGB8888, //one byte for alpha, followed by 3 byte for red, green and blue, that is the pixel format
 				     SDL_TEXTUREACCESS_STREAMING,
 				     width,
-				     hight)
+				     hight),
+		    width, hight, width * globalBuffer.bytesPerPixel,
     };
-    if (!mainTexture.texture) {
+    if (!globalBuffer.texture) {
 	std::cout<<"error creating texture"<<'\n';
 	return;
     }
-    // pixels = malloc(width * hight * bytesPerPixel); //multiply by 4 for the four bytes of each pixel
-    if(!mainTexture.pixels) std::cout<<"failed to allocate memory"<<'\n';
-    // pitch = width * bytesPerPixel;
+    // pixels = malloc(width * hight * globalBuffer.bytesPerPixel); //multiply by 4 for the four bytes of each pixel
+    if(!globalBuffer.pixels) std::cout<<"failed to allocate memory"<<'\n';
+    // pitch = width * globalBuffer.bytesPerPixel;
 }
 
 bool HandleEvent(const SDL_Event& Event, SDL_Renderer* renderer)
@@ -84,7 +90,7 @@ bool HandleEvent(const SDL_Event& Event, SDL_Renderer* renderer)
 	    switch(Event.window.event)
 	    {
 	        case SDL_WINDOWEVENT_SIZE_CHANGED:{
-		    SDLResizeTexture(renderer, Event.window.data1, Event.window.data2);
+		    SDLStretchTextureToWindow(renderer, Event.window.data1, Event.window.data2);
 		    // std::cout<<"width: "<<Event.window.data1<<' '<<
 			   //     "hight: "<<Event.window.data2<<'\n';
 	        } break;
@@ -111,6 +117,8 @@ bool HandleEvent(const SDL_Event& Event, SDL_Renderer* renderer)
 
 int main(int argc, char *argv[])
 {
+    const int initial_width = 640;
+    const int initial_hight = 480;
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
 	//TODO: SDL_Init didn't work!
@@ -121,8 +129,8 @@ int main(int argc, char *argv[])
     window = SDL_CreateWindow("Handmande Hero",
 		     SDL_WINDOWPOS_UNDEFINED,
 		     SDL_WINDOWPOS_UNDEFINED,
-		     640,
-		     480,
+		     initial_width,
+		     initial_hight,
 		     SDL_WINDOW_RESIZABLE);
     if (!window) {
 	std::cout<<"Window failed to create"<<'\n';
@@ -133,6 +141,7 @@ int main(int argc, char *argv[])
 	std::cout<<"Error creating SDL Renderer.\n";
         return 1;
     }
+    SDLStretchTextureToWindow(renderer, initial_width, initial_hight);
     bool running = true;
     int XOffset = 0;
     while(running)
@@ -144,12 +153,12 @@ int main(int argc, char *argv[])
 		running= false;
 	    }
 	}
-	GradientRenderer(mainTexture, XOffset, 0);
+	GradientRenderer(globalBuffer, XOffset, 0);
 	UpdateWindow(window, renderer);
 	++XOffset;
     }
     // SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Handmade Hero", "This is Handmade Hero", 0);
-    SDL_DestroyTexture(mainTexture.texture);
+    SDL_DestroyTexture(globalBuffer.texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

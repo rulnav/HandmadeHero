@@ -5,15 +5,29 @@
 #include "array"
 #include "stdint.h"
 	
+struct sdl_window_dimension
+{
+    int width;
+    int height;
+};
+
 struct SDL_Backbuffer {
     void* pixels;
     SDL_Texture *texture ;
     int width;
     int hight;
     int pitch;
-    int bytesPerPixel {4};
 } ;
 static SDL_Backbuffer globalBuffer;
+
+sdl_window_dimension SDLGetWindowDimension(SDL_Window *window)
+{
+    sdl_window_dimension result;
+
+    SDL_GetWindowSize(window, &result.width, &result.height);
+
+    return(result);
+}
 
 void GradientRenderer(const SDL_Backbuffer& texture, int offsetX, int offsetY){
     uint8_t* row = (uint8_t *)texture.pixels; 
@@ -31,7 +45,7 @@ void GradientRenderer(const SDL_Backbuffer& texture, int offsetX, int offsetY){
 
 }
 
-void UpdateWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer){
+void SDLUpdateWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer){
     if (SDL_UpdateTexture(buffer.texture, 0,
 			  buffer.pixels,
 			  buffer.pitch)){
@@ -43,27 +57,31 @@ void UpdateWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer){
 		       0)){
 	std::cout<<"error copying renderer"<<'\n';
     }
-    // SDL_RenderClear(renderer);
     SDL_RenderPresent(renderer);
 }
 
 void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer, int width, int hight){
-    free(buffer.pixels);
-    buffer = { malloc(width * hight * buffer.bytesPerPixel),
+    if(buffer.pixels){
+	free(buffer.pixels);
+    }
+    if(buffer.texture){
+       SDL_DestroyTexture(buffer.texture);
+    }
+    int bytesPerPixel {4};
+    buffer = { malloc(width * hight * bytesPerPixel),
 		    SDL_CreateTexture(renderer,
-				     SDL_PIXELFORMAT_ARGB8888, //one byte for alpha, followed by 3 byte for red, green and blue, that is the pixel format
+    //one byte for alpha, followed by 3 byte for red, green and blue, that is the pixel format, or bytesPerPixel
+				     SDL_PIXELFORMAT_ARGB8888,
 				     SDL_TEXTUREACCESS_STREAMING,
 				     width,
 				     hight),
-		    width, hight, width * buffer.bytesPerPixel,
+		    width, hight, width * bytesPerPixel,
     };
     if (!buffer.texture) {
 	std::cout<<"error creating texture"<<'\n';
 	return;
     }
-    // pixels = malloc(width * hight * buffer.bytesPerPixel); //multiply by 4 for the four bytes of each pixel
     if(!buffer.pixels) std::cout<<"failed to allocate memory"<<'\n';
-    // pitch = width * buffer.bytesPerPixel;
 }
 
 bool HandleEvent(const SDL_Event& Event, SDL_Renderer* renderer)
@@ -79,6 +97,7 @@ bool HandleEvent(const SDL_Event& Event, SDL_Renderer* renderer)
 	    switch(Event.window.event)
 	    {
 	        case SDL_WINDOWEVENT_SIZE_CHANGED:{
+		    //TODO: Think about removing this line, RenderCopy already stretches the texture
 		    SDLStretchTextureToWindow(globalBuffer, renderer, Event.window.data1, Event.window.data2);
 	        } break;
 	    }
@@ -127,7 +146,7 @@ int main(int argc, char *argv[])
 	    }
 	}
 	GradientRenderer(globalBuffer, XOffset, YOffset );
-	UpdateWindow(globalBuffer, renderer);
+	SDLUpdateWindow(globalBuffer, renderer);
 	++XOffset;
     }
     SDL_DestroyTexture(globalBuffer.texture);

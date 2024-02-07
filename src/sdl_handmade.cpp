@@ -4,6 +4,7 @@
 #include "SDL2/SDL_video.h"
 #include "array"
 #include "stdint.h"
+#include <SDL2/SDL_audio.h>
 #include <SDL2/SDL_keycode.h>
 	
 struct sdl_window_dimension
@@ -22,8 +23,7 @@ struct SDL_Backbuffer {
 static SDL_Backbuffer globalBuffer;
 static bool running = true;
 
-sdl_window_dimension SDLGetWindowDimension(SDL_Window *window)
-{
+sdl_window_dimension SDLGetWindowDimension(SDL_Window *window){
     sdl_window_dimension result;
 
     SDL_GetWindowSize(window, &result.width, &result.height);
@@ -31,7 +31,7 @@ sdl_window_dimension SDLGetWindowDimension(SDL_Window *window)
     return(result);
 }
 
-void GradientRenderer(const SDL_Backbuffer& texture, int offsetX, int offsetY){
+static void GradientRenderer(const SDL_Backbuffer& texture, int offsetX, int offsetY){
     uint8_t* row = (uint8_t *)texture.pixels; 
     for (int Y = 0; Y < texture.hight; Y++){
 	uint32_t* pixel = (uint32_t *) row; 
@@ -47,7 +47,7 @@ void GradientRenderer(const SDL_Backbuffer& texture, int offsetX, int offsetY){
 
 }
 
-void SDLUpdateWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer){
+static void SDLUpdateWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer){
     if (SDL_UpdateTexture(buffer.texture, 0,
 			  buffer.pixels,
 			  buffer.pitch)){
@@ -62,7 +62,7 @@ void SDLUpdateWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer){
     SDL_RenderPresent(renderer);
 }
 
-void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer, int width, int hight){
+static void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer, int width, int hight){
     if(buffer.pixels){
 	free(buffer.pixels);
     }
@@ -86,8 +86,12 @@ void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer, i
     if(!buffer.pixels) std::cout<<"failed to allocate memory"<<'\n';
 }
 
-bool HandleEvent(const SDL_Event& event, SDL_Renderer* renderer)
-{
+static void SDLAudioCallback(void *UserData, Uint8 *AudioData, int Length){
+    // Clear our audio buffer to silence.
+    memset(AudioData, 0, Length);
+}
+
+static bool HandleEvent(const SDL_Event& event, SDL_Renderer* renderer){
     bool should_quit = false;
     switch (event.type)
     {
@@ -160,7 +164,7 @@ int main(int argc, char *argv[])
 {
     const int initial_width = 1200;
     const int initial_hight = 720;
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_HAPTIC | SDL_INIT_AUDIO) != 0)
     {
 	//TODO: SDL_Init didn't work!
 	std::cout << SDL_GetError();
@@ -182,6 +186,8 @@ int main(int argc, char *argv[])
 	std::cout<<"Error creating SDL Renderer.\n";
         return 1;
     }
+    SDL_AudioSpec *audio_spec;
+    SDL_OpenAudio(audio_spec, audio_spec);
     SDLStretchTextureToWindow(globalBuffer, renderer, initial_width, initial_hight);
     int XOffset = 0;
     int YOffset = 0;

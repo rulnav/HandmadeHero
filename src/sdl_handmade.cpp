@@ -4,6 +4,7 @@
 #include "SDL2/SDL_video.h"
 #include "array"
 #include "stdint.h"
+#include <SDL2/SDL_keycode.h>
 	
 struct sdl_window_dimension
 {
@@ -19,6 +20,7 @@ struct SDL_Backbuffer {
     int pitch;
 } ;
 static SDL_Backbuffer globalBuffer;
+static bool running = true;
 
 sdl_window_dimension SDLGetWindowDimension(SDL_Window *window)
 {
@@ -84,32 +86,80 @@ void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer, i
     if(!buffer.pixels) std::cout<<"failed to allocate memory"<<'\n';
 }
 
-bool HandleEvent(const SDL_Event& Event, SDL_Renderer* renderer)
+bool HandleEvent(const SDL_Event& event, SDL_Renderer* renderer)
 {
-    bool shouldQuit = false;
-    switch (Event.type)
+    bool should_quit = false;
+    switch (event.type)
     {
 	case SDL_QUIT:{
 	    std::cout<<"SDL_QUIT"<<'\n';
-	    shouldQuit=true;
+	    should_quit=true;
 	} break;
 	case SDL_WINDOWEVENT:{
-	    switch(Event.window.event)
+	    switch(event.window.event)
 	    {
 	        case SDL_WINDOWEVENT_SIZE_CHANGED:{
 		    //TODO: Think about removing this line, RenderCopy already stretches the texture
-		    SDLStretchTextureToWindow(globalBuffer, renderer, Event.window.data1, Event.window.data2);
+		    // SDLStretchTextureToWindow(globalBuffer, renderer, event.window.data1, event.window.data2);
 	        } break;
 	    }
 	} break;
+	case SDL_KEYDOWN:
+	case SDL_KEYUP:
+	{
+	    SDL_Keycode key_code = event.key.keysym.sym;
+	    bool was_down = false;
+	    if (event.key.state == SDL_RELEASED)
+	    {
+		was_down = true;
+	    }
+	    else if (event.key.repeat != 0)
+	    {
+		was_down = true;
+	    }
+	    if (was_down) break;
+	    if (key_code == SDLK_w){
+		printf("W\n");
+	    }
+	    if (key_code == SDLK_s){
+		printf("S\n");
+	    }
+	    if (key_code == SDLK_d){
+		printf("D\n");
+	    }
+	    if (key_code == SDLK_a){
+		printf("A\n");
+	    }
+	    if (key_code == SDLK_q){
+		printf("Q\n");
+	    }
+	    if (key_code == SDLK_e){
+		printf("E\n");
+	    }
+	    if (key_code == SDLK_RIGHT){
+		printf("RIGHT\n");
+	    }
+	    if (key_code == SDLK_LEFT){
+		printf("LEFT\n");
+	    }
+	    if (key_code == SDLK_UP){
+		printf("UP\n");
+	    }
+	    if (key_code == SDLK_DOWN){
+		printf("DOWN\n");
+	    }
+	    if (key_code == SDLK_ESCAPE){
+		printf("Escape\n");
+	    }
+	} break;
     }
-    return(shouldQuit);
+    return(should_quit);
 }
 
 int main(int argc, char *argv[])
 {
-    const int initial_width = 640;
-    const int initial_hight = 480;
+    const int initial_width = 1200;
+    const int initial_hight = 720;
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
 	//TODO: SDL_Init didn't work!
@@ -133,7 +183,6 @@ int main(int argc, char *argv[])
         return 1;
     }
     SDLStretchTextureToWindow(globalBuffer, renderer, initial_width, initial_hight);
-    bool running = true;
     int XOffset = 0;
     int YOffset = 0;
     while(running)

@@ -6,6 +6,7 @@
 #include "stdint.h"
 #include <SDL2/SDL_audio.h>
 #include <SDL2/SDL_keycode.h>
+#include <cstdint>
 	
 struct sdl_window_dimension
 {
@@ -89,6 +90,29 @@ static void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *rend
 static void SDLAudioCallback(void *UserData, Uint8 *AudioData, int Length){
     // Clear our audio buffer to silence.
     memset(AudioData, 0, Length);
+}
+
+static void SDLInitAudio(int32_t SamplesPerSecond, int32_t BufferSize){
+    SDL_AudioSpec AudioSettings = {0};
+
+    AudioSettings.freq = SamplesPerSecond;
+    AudioSettings.format = AUDIO_S16LSB;
+    AudioSettings.channels = 2;
+    AudioSettings.samples = BufferSize;
+    AudioSettings.callback = &SDLAudioCallback;
+
+    SDL_OpenAudio(&AudioSettings, 0);
+
+    printf("Initialised an Audio device at frequency %d Hz, %d Channels\n",
+           AudioSettings.freq, AudioSettings.channels);
+
+    if (AudioSettings.format != AUDIO_S16LSB)
+    {
+        printf("Oops! We didn't get AUDIO_S16LSB as our sample format!\n");
+        SDL_CloseAudio();
+    }
+
+    SDL_PauseAudio(0);
 }
 
 static bool HandleEvent(const SDL_Event& event, SDL_Renderer* renderer){
@@ -181,13 +205,15 @@ int main(int argc, char *argv[])
 	std::cout<<"Window failed to create"<<'\n';
 	return 1;
     }
+    SDLInitAudio(48000, 4096);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (!renderer) {
 	std::cout<<"Error creating SDL Renderer.\n";
         return 1;
     }
-    SDL_AudioSpec *audio_spec;
-    SDL_OpenAudio(audio_spec, audio_spec);
+    // SDL_AudioSpec *audio_spec;
+    // SDL_OpenAudio(audio_spec, audio_spec);
+
     SDLStretchTextureToWindow(globalBuffer, renderer, initial_width, initial_hight);
     int XOffset = 0;
     int YOffset = 0;

@@ -7,6 +7,9 @@
 #include <SDL2/SDL_audio.h>
 #include <SDL2/SDL_keycode.h>
 #include <cstdint>
+#include <math.h>
+
+#define Pi32 3.14159265358979f
 	
 struct sdl_window_dimension
 {
@@ -87,19 +90,19 @@ static void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *rend
     if(!buffer.pixels) std::cout<<"failed to allocate memory"<<'\n';
 }
 
-static void SDLAudioCallback(void *UserData, Uint8 *AudioData, int Length){
-    // Clear our audio buffer to silence.
-    memset(AudioData, 0, Length);
-}
+// static void SDLAudioCallback(void *UserData, Uint8 *AudioData, int Length){
+//     // Clear our audio buffer to silence.
+//     memset(AudioData, 0, Length);
+// }
 
 static void SDLInitAudio(int32_t SamplesPerSecond, int32_t BufferSize){
     SDL_AudioSpec AudioSettings = {0};
 
-    AudioSettings.freq = SamplesPerSecond;
-    AudioSettings.format = AUDIO_S16LSB;
-    AudioSettings.channels = 2;
-    AudioSettings.samples = BufferSize;
-    AudioSettings.callback = &SDLAudioCallback;
+    AudioSettings.freq = SamplesPerSecond; //number of samples per second
+    AudioSettings.format = AUDIO_S16LSB; //signed 16 bit
+    AudioSettings.channels = 2; //1 for mono, 2 for stereo
+    AudioSettings.samples = BufferSize; 
+    // AudioSettings.callback = &SDLAudioCallback; //SDL will call this function whenever more data is required
 
     SDL_OpenAudio(&AudioSettings, 0);
 
@@ -112,7 +115,7 @@ static void SDLInitAudio(int32_t SamplesPerSecond, int32_t BufferSize){
         SDL_CloseAudio();
     }
 
-    SDL_PauseAudio(0);
+    // SDL_PauseAudio(0);
 }
 
 static bool HandleEvent(const SDL_Event& event, SDL_Renderer* renderer){
@@ -188,6 +191,20 @@ int main(int argc, char *argv[])
 {
     const int initial_width = 1200;
     const int initial_hight = 720;
+
+    // NOTE: Sound test                                                                                                                                                              
+    int SamplesPerSecond = 48000;
+    int ToneHz = 256;
+    int16_t ToneVolume = 3000;
+    uint32_t RunningSampleIndex = 0;
+    int SquareWavePeriod = SamplesPerSecond / ToneHz;
+    int HalfSquareWavePeriod = SquareWavePeriod / 2;
+    int BytesPerSample = sizeof(int16_t) * 2;
+    // Open our audio device:                                                                                                                                                        
+    SDLInitAudio(48000, SamplesPerSecond * BytesPerSample / 60);
+    bool SoundIsPlaying = false;
+
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_HAPTIC | SDL_INIT_AUDIO) != 0)
     {
 	//TODO: SDL_Init didn't work!
@@ -227,6 +244,34 @@ int main(int argc, char *argv[])
 	    }
 	}
 	GradientRenderer(globalBuffer, XOffset, YOffset );
+
+	// Sound output test                                                                                                                                                         
+	int TargetQueueBytes = SamplesPerSecond * BytesPerSample;
+	int BytesToWrite = TargetQueueBytes - SDL_GetQueuedAudioSize(1);
+	if (BytesToWrite)
+	{
+	    void *SoundBuffer = malloc(BytesToWrite);
+	    int16_t *SampleOut = (int16_t *)SoundBuffer;
+	    int SampleCount = BytesToWrite/BytesPerSample;
+	    for(int SampleIndex = 0;
+	    SampleIndex < SampleCount;
+	    ++SampleIndex)
+	    {
+		int16_t SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? ToneVolume : -ToneVolume;
+		*SampleOut++ = SampleValue;
+		*SampleOut++ = SampleValue;
+	    }
+	    SDL_QueueAudio(1, SoundBuffer, BytesToWrite);
+	    free(SoundBuffer);
+	}
+
+	if(!SoundIsPlaying)
+	{
+	    SDL_PauseAudio(0);
+	    SoundIsPlaying = true;
+	}
+
+
 	SDLUpdateWindow(globalBuffer, renderer);
 	++XOffset;
     }

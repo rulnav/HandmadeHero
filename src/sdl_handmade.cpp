@@ -1,4 +1,5 @@
 #include "iostream"
+#include <x86intrin.h>
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_events.h"
 #include "SDL2/SDL_video.h"
@@ -8,10 +9,11 @@
 #include <SDL2/SDL_keycode.h>
 #include <cstdint>
 #include <math.h>
+#include "../src/handmade.cpp"
 
 #define Pi32 3.14159265358979f
 	
-struct sdl_window_dimension
+struct SDL_WindowDimension
 {
     int width;
     int height;
@@ -21,34 +23,31 @@ struct SDL_Backbuffer {
     void* pixels;
     SDL_Texture *texture ;
     int width;
-    int hight;
+    int height;
     int pitch;
 } ;
 static SDL_Backbuffer globalBuffer;
 static bool running = true;
 
-sdl_window_dimension SDLGetWindowDimension(SDL_Window *window){
-    sdl_window_dimension result;
+struct SDL_SoundOutput
+{
+    int samples_per_second;
+    int tone_hz;
+    int16_t tone_volume;
+    uint32_t running_sample_index;
+    int wave_period;
+    int bytes_per_sample;
+    int secondary_buffer_size;
+    float t_sine;
+    int latency_sample_count;
+};
+
+SDL_WindowDimension SDLGetWindowDimension(SDL_Window *window){
+    SDL_WindowDimension result;
 
     SDL_GetWindowSize(window, &result.width, &result.height);
 
     return(result);
-}
-
-static void GradientRenderer(const SDL_Backbuffer& texture, int offsetX, int offsetY){
-    uint8_t* row = (uint8_t *)texture.pixels; 
-    for (int Y = 0; Y < texture.hight; Y++){
-	uint32_t* pixel = (uint32_t *) row; 
-	for (int X = 0; X < texture.width; X++){
-	    uint8_t BLUE = (X+offsetX);
-	    uint8_t GREEN = (Y+offsetY);
-	    uint8_t RED = 0xFF;
-	    *pixel = (RED<<(8*2)) | (GREEN<<8) | (BLUE);
-	    ++pixel;
-	}
-	row+=texture.pitch;
-    }
-
 }
 
 static void SDLUpdateWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer){
@@ -66,7 +65,7 @@ static void SDLUpdateWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer){
     SDL_RenderPresent(renderer);
 }
 
-static void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer, int width, int hight){
+static void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *renderer, int width, int height){
     if(buffer.pixels){
 	free(buffer.pixels);
     }
@@ -74,14 +73,14 @@ static void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *rend
        SDL_DestroyTexture(buffer.texture);
     }
     int bytesPerPixel {4};
-    buffer = { malloc(width * hight * bytesPerPixel),
+    buffer = { malloc(width * height * bytesPerPixel),
 		    SDL_CreateTexture(renderer,
     //one byte for alpha, followed by 3 byte for red, green and blue, that is the pixel format, or bytesPerPixel
 				     SDL_PIXELFORMAT_ARGB8888,
 				     SDL_TEXTUREACCESS_STREAMING,
 				     width,
-				     hight),
-		    width, hight, width * bytesPerPixel,
+				     height),
+		    width, height, width * bytesPerPixel,
     };
     if (!buffer.texture) {
 	std::cout<<"error creating texture"<<'\n';
@@ -95,10 +94,10 @@ static void SDLStretchTextureToWindow(SDL_Backbuffer& buffer, SDL_Renderer *rend
 //     memset(AudioData, 0, Length);
 // }
 
-static void SDLInitAudio(int32_t SamplesPerSecond, int32_t BufferSize){
+static void SDLInitAudio(int32_t samples_per_second, int32_t BufferSize){
     SDL_AudioSpec AudioSettings = {0};
 
-    AudioSettings.freq = SamplesPerSecond; //number of samples per second
+    AudioSettings.freq = samples_per_second; //number of samples per second
     AudioSettings.format = AUDIO_S16LSB; //signed 16 bit
     AudioSettings.channels = 2; //1 for mono, 2 for stereo
     AudioSettings.samples = BufferSize; 
@@ -116,6 +115,30 @@ static void SDLInitAudio(int32_t SamplesPerSecond, int32_t BufferSize){
     }
 
     // SDL_PauseAudio(0);
+}
+
+void SDLFillSoundBuffer(SDL_SoundOutput *sound_output, int ByteToLock, int bytes_to_write)
+{
+    int SampleCount = bytes_to_write/sound_output->bytes_per_sample;
+    void *AudioBuffer = malloc(bytes_to_write);
+    int16_t *SampleOut = (int16_t*)AudioBuffer;
+    for(int SampleIndex = 0;
+        SampleIndex < SampleCount;
+        ++SampleIndex)
+    {
+        // TODO(casey): Draw this out for people
+        float SineValue = sinf(sound_output->t_sine);
+        int16_t SampleValue = (int16_t)(SineValue * sound_output->tone_volume);
+        *SampleOut++ = SampleValue;
+        *SampleOut++ = SampleValue;
+
+        sound_output->t_sine += 2.0f*Pi32*1.0f/(float)sound_output->wave_period;
+        ++sound_output->running_sample_index;
+    }
+
+    SDL_QueueAudio(1, AudioBuffer, bytes_to_write);
+
+    free(AudioBuffer);
 }
 
 static bool HandleEvent(const SDL_Event& event, SDL_Renderer* renderer){
@@ -190,19 +213,24 @@ static bool HandleEvent(const SDL_Event& event, SDL_Renderer* renderer){
 int main(int argc, char *argv[])
 {
     const int initial_width = 1200;
-    const int initial_hight = 720;
+    const int initial_height = 720;
 
     // NOTE: Sound test                                                                                                                                                              
-    int SamplesPerSecond = 48000;
-    int ToneHz = 256;
-    int16_t ToneVolume = 3000;
-    uint32_t RunningSampleIndex = 0;
-    int SquareWavePeriod = SamplesPerSecond / ToneHz;
-    int HalfSquareWavePeriod = SquareWavePeriod / 2;
-    int BytesPerSample = sizeof(int16_t) * 2;
+    SDL_SoundOutput sound_output = {};
+
+    sound_output.samples_per_second = 48000;
+    sound_output.tone_hz = 256;
+    sound_output.tone_volume = 3000;
+    sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+    sound_output.bytes_per_sample = sizeof(int16_t) * 2;
+    sound_output.latency_sample_count = sound_output.samples_per_second / 15;
+
+    bool sound_is_playing = false;
+
     // Open our audio device:                                                                                                                                                        
-    SDLInitAudio(48000, SamplesPerSecond * BytesPerSample / 60);
-    bool SoundIsPlaying = false;
+    SDLInitAudio(sound_output.samples_per_second, sound_output.samples_per_second * sound_output.bytes_per_sample / 60);
+    SDLFillSoundBuffer(&sound_output, 0, sound_output.latency_sample_count*sound_output.bytes_per_sample);
+    // SDL_PauseAudio(0);
 
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_HAPTIC | SDL_INIT_AUDIO) != 0)
@@ -216,7 +244,7 @@ int main(int argc, char *argv[])
 		     SDL_WINDOWPOS_UNDEFINED,
 		     SDL_WINDOWPOS_UNDEFINED,
 		     initial_width,
-		     initial_hight,
+		     initial_height,
 		     SDL_WINDOW_RESIZABLE);
     if (!window) {
 	std::cout<<"Window failed to create"<<'\n';
@@ -231,9 +259,15 @@ int main(int argc, char *argv[])
     // SDL_AudioSpec *audio_spec;
     // SDL_OpenAudio(audio_spec, audio_spec);
 
-    SDLStretchTextureToWindow(globalBuffer, renderer, initial_width, initial_hight);
+    SDLStretchTextureToWindow(globalBuffer, renderer, initial_width, initial_height);
     int XOffset = 0;
     int YOffset = 0;
+#ifdef PERFORMANCE_LOG
+    uint64_t perf_count_frequency = SDL_GetPerformanceFrequency();
+    uint64_t last_counter = SDL_GetPerformanceCounter();
+    uint64_t last_cycle_count = _rdtsc();
+#endif
+    struct game_offscreen_buffer buffer = {};
     while(running)
     {
 	SDL_Event Event;
@@ -243,37 +277,37 @@ int main(int argc, char *argv[])
 		running= false;
 	    }
 	}
-	GradientRenderer(globalBuffer, XOffset, YOffset );
+	buffer.memory = globalBuffer.pixels;
+	buffer.width = globalBuffer.width;
+	buffer.height = globalBuffer.height;
+	buffer.pitch = globalBuffer.pitch;
+	GameUpdateAndRender(buffer, XOffset, YOffset);
 
-	// Sound output test                                                                                                                                                         
-	int TargetQueueBytes = SamplesPerSecond * BytesPerSample;
-	int BytesToWrite = TargetQueueBytes - SDL_GetQueuedAudioSize(1);
-	if (BytesToWrite)
-	{
-	    void *SoundBuffer = malloc(BytesToWrite);
-	    int16_t *SampleOut = (int16_t *)SoundBuffer;
-	    int SampleCount = BytesToWrite/BytesPerSample;
-	    for(int SampleIndex = 0;
-	    SampleIndex < SampleCount;
-	    ++SampleIndex)
-	    {
-		int16_t SampleValue = ((RunningSampleIndex++ / HalfSquareWavePeriod) % 2) ? ToneVolume : -ToneVolume;
-		*SampleOut++ = SampleValue;
-		*SampleOut++ = SampleValue;
-	    }
-	    SDL_QueueAudio(1, SoundBuffer, BytesToWrite);
-	    free(SoundBuffer);
-	}
-
-	if(!SoundIsPlaying)
+	int target_queue_bytes = sound_output.latency_sample_count * sound_output.bytes_per_sample;
+	int bytes_to_write = target_queue_bytes - SDL_GetQueuedAudioSize(1);
+	SDLFillSoundBuffer(&sound_output, 0, bytes_to_write);
+	if(!sound_is_playing)
 	{
 	    SDL_PauseAudio(0);
-	    SoundIsPlaying = true;
+	    sound_is_playing = true;
 	}
-
 
 	SDLUpdateWindow(globalBuffer, renderer);
 	++XOffset;
+#ifdef PERFORMANCE_LOG
+	uint64_t end_counter = SDL_GetPerformanceCounter();
+	uint64_t counter_elapsed = end_counter - last_counter;
+	uint64_t end_cycle_count = _rdtsc();
+	uint64_t cycles_elapsed = end_cycle_count - last_cycle_count;
+
+	double ms_per_frame = (((1000.0f * (double)counter_elapsed ) / (double)perf_count_frequency));
+	double fps = (double)perf_count_frequency / (double)counter_elapsed;
+	double mcpf = ((double)cycles_elapsed / (1000.0f * 1000.0f));
+
+	printf("%.02f ms/f, %.02f fps/s, %.02f mc/f\n",ms_per_frame, fps, mcpf);
+	last_cycle_count = end_cycle_count;
+	last_counter = end_counter;
+#endif
     }
     SDL_DestroyTexture(globalBuffer.texture);
     SDL_DestroyRenderer(renderer);

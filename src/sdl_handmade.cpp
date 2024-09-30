@@ -11,8 +11,6 @@
 #include <math.h>
 #include "../src/handmade.cpp"
 
-#define Pi32 3.14159265358979f
-	
 struct SDL_WindowDimension
 {
     int width;
@@ -115,6 +113,11 @@ static void SDLInitAudio(int32_t samples_per_second, int32_t BufferSize){
     }
 
     // SDL_PauseAudio(0);
+}
+
+static void SDLFillSoundBuffer(SDL_SoundOutput &sound_output, int ByteToLock, int bytes_to_write, s_gameSoundOutputBuffer &sound_buffer)
+{
+    SDL_QueueAudio(1, sound_buffer.samples, bytes_to_write);
 }
 
 void SDLFillSoundBuffer(SDL_SoundOutput *sound_output, int ByteToLock, int bytes_to_write)
@@ -227,9 +230,11 @@ int main(int argc, char *argv[])
 
     bool sound_is_playing = false;
 
-    // Open our audio device:                                                                                                                                                        
-    SDLInitAudio(sound_output.samples_per_second, sound_output.samples_per_second * sound_output.bytes_per_sample / 60);
+
+    // Open our audio device:
     SDLFillSoundBuffer(&sound_output, 0, sound_output.latency_sample_count*sound_output.bytes_per_sample);
+    // NOTE: calloc() allocates memory and clears it to zero. It accepts the number of things being allocated and their size. 
+    int16_t *samples = (int16_t *)calloc(sound_output.latency_sample_count, sound_output.bytes_per_sample);
     // SDL_PauseAudio(0);
 
 
@@ -250,7 +255,7 @@ int main(int argc, char *argv[])
 	std::cout<<"Window failed to create"<<'\n';
 	return 1;
     }
-    SDLInitAudio(48000, 4096);
+    SDLInitAudio(sound_output.samples_per_second, sound_output.samples_per_second * sound_output.bytes_per_sample / 60);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (!renderer) {
 	std::cout<<"Error creating SDL Renderer.\n";
@@ -267,7 +272,8 @@ int main(int argc, char *argv[])
     uint64_t last_counter = SDL_GetPerformanceCounter();
     uint64_t last_cycle_count = _rdtsc();
 #endif
-    struct game_offscreen_buffer buffer = {};
+    struct s_gameOffscreenBuffer buffer = {};
+    struct s_gameSoundOutputBuffer sound_buffer = {};
     while(running)
     {
 	SDL_Event Event;
@@ -277,15 +283,20 @@ int main(int argc, char *argv[])
 		running= false;
 	    }
 	}
+	// Sound output test
+	int target_queue_bytes = sound_output.latency_sample_count * sound_output.bytes_per_sample;
+	int bytes_to_write = target_queue_bytes - SDL_GetQueuedAudioSize(1);
+	sound_buffer.samples_per_second = sound_output.samples_per_second;
+	sound_buffer.sample_count = bytes_to_write / sound_output.bytes_per_sample;
+	sound_buffer.samples = samples;
+
 	buffer.memory = globalBuffer.pixels;
 	buffer.width = globalBuffer.width;
 	buffer.height = globalBuffer.height;
 	buffer.pitch = globalBuffer.pitch;
-	GameUpdateAndRender(buffer, XOffset, YOffset);
+	GameUpdateAndRender(buffer, XOffset, YOffset, sound_buffer);
 
-	int target_queue_bytes = sound_output.latency_sample_count * sound_output.bytes_per_sample;
-	int bytes_to_write = target_queue_bytes - SDL_GetQueuedAudioSize(1);
-	SDLFillSoundBuffer(&sound_output, 0, bytes_to_write);
+	SDLFillSoundBuffer(sound_output, 0, bytes_to_write, sound_buffer);
 	if(!sound_is_playing)
 	{
 	    SDL_PauseAudio(0);
